@@ -1,0 +1,77 @@
+import json
+import math
+import multiprocessing as mp
+import os
+import platform
+import statistics
+from time import perf_counter
+
+BATAS = 500_000
+UKURAN_BLOK = 10_000
+PENGULANGAN = 3
+
+
+def prima(n):
+    if n < 2:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    for pembagi in range(3, math.isqrt(n) + 1, 2):
+        if n % pembagi == 0:
+            return False
+    return True
+
+
+def hitung_blok(batas):
+    awal, akhir = batas
+    return sum(prima(n) for n in range(awal, akhir))
+
+
+def jalankan(pekerja):
+    mulai = perf_counter()
+    if pekerja == 0:
+        jumlah = hitung_blok((1, BATAS + 1))
+    else:
+        blok = [(a, min(a + UKURAN_BLOK, BATAS + 1))
+                for a in range(1, BATAS + 1, UKURAN_BLOK)]
+        konteks = mp.get_context("spawn")
+        with konteks.Pool(pekerja) as pool:
+            jumlah = sum(pool.map(hitung_blok, blok, chunksize=1))
+    return jumlah, perf_counter() - mulai
+
+
+def main():
+    assert hitung_blok((1, 101)) == 25
+    waktu = {p: [] for p in (0, 2, 4)}
+    urutan = [(0, 2, 4), (2, 4, 0), (4, 0, 2)]
+    for i in range(PENGULANGAN):
+        for p in urutan[i % len(urutan)]:
+            jumlah, detik = jalankan(p)
+            assert jumlah == 41_538, "Jumlah prima tidak cocok"
+            waktu[p].append(detik)
+            print(f"Uji {i+1} | pekerja={p} | "
+                  f"prima={jumlah} | {detik:.6f} detik", flush=True)
+    hasil = {
+        "python": platform.python_version(),
+        "sistem": platform.system(),
+        "cpu_logis": os.cpu_count(),
+        "batas": BATAS,
+        "ukuran_blok": UKURAN_BLOK,
+        "jumlah_prima": jumlah,
+        "waktu": waktu,
+        "median": {p: statistics.median(t) for p, t in waktu.items()}
+    }
+    with open("hasil_praktikum.json", "w", encoding="utf-8") as f:
+        json.dump(hasil, f, indent=2)
+    t_serial = hasil["median"][0]
+    for p in (2, 4):
+        speedup = t_serial / hasil["median"][p]
+        print(f"{p} pekerja: speedup={speedup:.3f}x, "
+              f"efisiensi={speedup/p*100:.2f}%")
+
+
+if __name__ == "__main__":
+    mp.freeze_support()
+    main()
